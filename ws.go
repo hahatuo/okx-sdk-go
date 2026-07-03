@@ -1,0 +1,468 @@
+package okx
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/coder/websocket"
+)
+
+const (
+	defaultWSWriteTimeout = 10 * time.Second
+	defaultWSPingInterval = 25 * time.Second
+)
+
+type WSOption func(*WSClient)
+
+func WithWSURL(url string) WSOption {
+	return func(c *WSClient) {
+		c.url = url
+	}
+}
+
+func WithWSCredentials(apiKey, secretKey, passphrase string) WSOption {
+	return func(c *WSClient) {
+		c.credentials = Credentials{APIKey: apiKey, SecretKey: secretKey, Passphrase: passphrase}
+	}
+}
+
+func WithWSLogger(logger Logger) WSOption {
+	return func(c *WSClient) {
+		if logger != nil {
+			c.logger = logger
+		}
+	}
+}
+
+type WSClient struct {
+	url         string
+	credentials Credentials
+	logger      Logger
+	now         func() time.Time
+
+	mu        sync.RWMutex
+	conn      *websocket.Conn
+	closed    bool
+	closeOnce sync.Once
+
+	writeCh chan wsWrite
+	done    chan struct{}
+
+	pending map[string]chan WSAck
+	subs    map[string]wsSubscriptionState
+}
+
+type wsWrite struct {
+	ctx     context.Context
+	payload []byte
+	errCh   chan error
+}
+
+type WSAck struct {
+	Event  string            `json:"event,omitempty"`
+	Code   string            `json:"code,omitempty"`
+	Msg    string            `json:"msg,omitempty"`
+	ConnID string            `json:"connId,omitempty"`
+	Arg    map[string]string `json:"arg,omitempty"`
+}
+
+type WSMessage struct {
+	Arg    map[string]string
+	Action string
+	Data   json.RawMessage
+	Raw    json.RawMessage
+}
+
+type Subscription struct {
+	Channel string
+	Args    map[string]string
+}
+
+type wsSubscriptionState struct {
+	sub Subscription
+	ch  chan WSMessage
+}
+
+func NewWSClient(opts ...WSOption) *WSClient {
+	c := &WSClient{
+		url:     WSPublicURL,
+		logger:  noopLogger{},
+		now:     time.Now,
+		writeCh: make(chan wsWrite, 128),
+		done:    make(chan struct{}),
+		pending: make(map[string]chan WSAck),
+		subs:    make(map[string]wsSubscriptionState),
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+func (c *WSClient) Connect(ctx context.Context) error {
+	conn, _, err := websocket.Dial(ctx, c.url, nil)
+	if err != nil {
+		return fmt.Errorf("okx ws: dial: %w", err)
+	}
+	conn.SetReadLimit(8 << 20)
+
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+		return errors.New("okx ws: client closed")
+	}
+	c.conn = conn
+	c.mu.Unlock()
+
+	go c.writeLoop(conn)
+	go c.readLoop(conn)
+	go c.pingLoop()
+	return nil
+}
+
+func (c *WSClient) Login(ctx context.Context) error {
+	timestamp := wsTimestamp(c.now())
+	signature := Sign(c.credentials.SecretKey, timestamp, http.MethodGet, "/users/self/verify", "")
+	req := map[string]any{
+		"op": "login",
+		"args": []map[string]string{{
+			"apiKey":     c.credentials.APIKey,
+			"passphrase": c.credentials.Passphrase,
+			"timestamp":  timestamp,
+			"sign":       signature,
+		}},
+	}
+	ack, err := c.sendAndWait(ctx, "login", req)
+	if err != nil {
+		return err
+	}
+	if ack.Code != "" && ack.Code != "0" {
+		return wrapOKXError(&OKXError{Code: ack.Code, Message: ack.Msg})
+	}
+	return nil
+}
+
+func (c *WSClient) Subscribe(ctx context.Context, sub Subscription) (<-chan WSMessage, error) {
+	if strings.TrimSpace(sub.Channel) == "" {
+		return nil, errors.New("okx ws: subscription channel is required")
+	}
+	key := sub.key()
+	ch := make(chan WSMessage, 256)
+
+	c.mu.Lock()
+	if _, exists := c.subs[key]; exists {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("okx ws: already subscribed to %s", key)
+	}
+	c.subs[key] = wsSubscriptionState{sub: sub.clone(), ch: ch}
+	c.mu.Unlock()
+
+	arg := sub.arg()
+	ack, err := c.sendAndWait(ctx, "subscribe:"+key, map[string]any{
+		"op":   "subscribe",
+		"args": []map[string]string{arg},
+	})
+	if err != nil {
+		c.removeSubscription(key, true)
+		return nil, err
+	}
+	if ack.Code != "" && ack.Code != "0" {
+		c.removeSubscription(key, true)
+		return nil, wrapOKXError(&OKXError{Code: ack.Code, Message: ack.Msg})
+	}
+	return ch, nil
+}
+
+func (c *WSClient) Unsubscribe(ctx context.Context, sub Subscription) error {
+	key := sub.key()
+	ack, err := c.sendAndWait(ctx, "unsubscribe:"+key, map[string]any{
+		"op":   "unsubscribe",
+		"args": []map[string]string{sub.arg()},
+	})
+	if err != nil {
+		return err
+	}
+	if ack.Code != "" && ack.Code != "0" {
+		return wrapOKXError(&OKXError{Code: ack.Code, Message: ack.Msg})
+	}
+	c.removeSubscription(key, true)
+	return nil
+}
+
+func (c *WSClient) Close() error {
+	var err error
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.closed = true
+		conn := c.conn
+		c.conn = nil
+		for key := range c.subs {
+			c.removeSubscriptionLocked(key, true)
+		}
+		c.mu.Unlock()
+		close(c.done)
+		if conn != nil {
+			err = conn.Close(websocket.StatusNormalClosure, "")
+		}
+	})
+	return err
+}
+
+func (c *WSClient) sendAndWait(ctx context.Context, pendingKey string, req any) (WSAck, error) {
+	ackCh := make(chan WSAck, 1)
+	c.mu.Lock()
+	c.pending[pendingKey] = ackCh
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.pending, pendingKey)
+		c.mu.Unlock()
+	}()
+
+	if err := c.sendJSON(ctx, req); err != nil {
+		return WSAck{}, err
+	}
+	select {
+	case ack := <-ackCh:
+		return ack, nil
+	case <-ctx.Done():
+		return WSAck{}, ctx.Err()
+	case <-c.done:
+		return WSAck{}, errors.New("okx ws: client closed")
+	}
+}
+
+func (c *WSClient) sendJSON(ctx context.Context, v any) error {
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("okx ws: encode message: %w", err)
+	}
+	errCh := make(chan error, 1)
+	select {
+	case c.writeCh <- wsWrite{ctx: ctx, payload: payload, errCh: errCh}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return errors.New("okx ws: client closed")
+	}
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return errors.New("okx ws: client closed")
+	}
+}
+
+func (c *WSClient) writeLoop(conn *websocket.Conn) {
+	for {
+		select {
+		case <-c.done:
+			return
+		case item := <-c.writeCh:
+			ctx := item.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			writeCtx, cancel := context.WithTimeout(ctx, defaultWSWriteTimeout)
+			err := conn.Write(writeCtx, websocket.MessageText, item.payload)
+			cancel()
+			item.errCh <- err
+		}
+	}
+}
+
+func (c *WSClient) readLoop(conn *websocket.Conn) {
+	for {
+		msgType, raw, err := conn.Read(context.Background())
+		if err != nil {
+			c.logger.Warn("okx ws read stopped", "error", err)
+			return
+		}
+		if msgType != websocket.MessageText {
+			continue
+		}
+		if string(raw) == "pong" {
+			continue
+		}
+		c.handleRaw(raw)
+	}
+}
+
+func (c *WSClient) pingLoop() {
+	ticker := time.NewTicker(defaultWSPingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), defaultWSWriteTimeout)
+			err := c.sendRaw(ctx, []byte("ping"))
+			cancel()
+			if err != nil {
+				c.logger.Warn("okx ws ping failed", "error", err)
+			}
+		case <-c.done:
+			return
+		}
+	}
+}
+
+func (c *WSClient) sendRaw(ctx context.Context, payload []byte) error {
+	errCh := make(chan error, 1)
+	select {
+	case c.writeCh <- wsWrite{ctx: ctx, payload: payload, errCh: errCh}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return errors.New("okx ws: client closed")
+	}
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return errors.New("okx ws: client closed")
+	}
+}
+
+func (c *WSClient) handleRaw(raw []byte) {
+	var msg struct {
+		Event  string            `json:"event,omitempty"`
+		Code   string            `json:"code,omitempty"`
+		Msg    string            `json:"msg,omitempty"`
+		ConnID string            `json:"connId,omitempty"`
+		Arg    map[string]string `json:"arg,omitempty"`
+		Action string            `json:"action,omitempty"`
+		Data   json.RawMessage   `json:"data,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		c.logger.Warn("okx ws decode failed", "error", err)
+		return
+	}
+
+	if msg.Event != "" {
+		c.dispatchAck(msg.Event, WSAck{
+			Event:  msg.Event,
+			Code:   msg.Code,
+			Msg:    msg.Msg,
+			ConnID: msg.ConnID,
+			Arg:    msg.Arg,
+		})
+		return
+	}
+	if msg.Arg == nil || len(msg.Data) == 0 {
+		return
+	}
+	sub := Subscription{Channel: msg.Arg["channel"], Args: argsWithoutChannel(msg.Arg)}
+	key := sub.key()
+	c.mu.RLock()
+	state, ok := c.subs[key]
+	c.mu.RUnlock()
+	if !ok {
+		return
+	}
+	select {
+	case state.ch <- WSMessage{Arg: msg.Arg, Action: msg.Action, Data: msg.Data, Raw: append(json.RawMessage(nil), raw...)}:
+	default:
+		c.logger.Warn("okx ws subscription channel full", "key", key)
+	}
+}
+
+func (c *WSClient) dispatchAck(event string, ack WSAck) {
+	keys := []string{event}
+	if ack.Arg != nil && ack.Arg["channel"] != "" {
+		sub := Subscription{Channel: ack.Arg["channel"], Args: argsWithoutChannel(ack.Arg)}
+		subKey := sub.key()
+		keys = append(keys, event+":"+subKey)
+		if event == "error" {
+			keys = append(keys, "subscribe:"+subKey, "unsubscribe:"+subKey)
+		}
+	}
+	if event == "error" {
+		keys = append(keys, "login")
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, key := range keys {
+		if ch := c.pending[key]; ch != nil {
+			select {
+			case ch <- ack:
+			default:
+			}
+		}
+	}
+}
+
+func (c *WSClient) removeSubscription(key string, closeCh bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.removeSubscriptionLocked(key, closeCh)
+}
+
+func (c *WSClient) removeSubscriptionLocked(key string, closeCh bool) {
+	state, ok := c.subs[key]
+	if !ok {
+		return
+	}
+	delete(c.subs, key)
+	if closeCh {
+		close(state.ch)
+	}
+}
+
+func (s Subscription) arg() map[string]string {
+	arg := map[string]string{"channel": s.Channel}
+	for k, v := range s.Args {
+		if k != "channel" && v != "" {
+			arg[k] = v
+		}
+	}
+	return arg
+}
+
+func (s Subscription) clone() Subscription {
+	args := make(map[string]string, len(s.Args))
+	for k, v := range s.Args {
+		args[k] = v
+	}
+	return Subscription{Channel: s.Channel, Args: args}
+}
+
+func (s Subscription) key() string {
+	arg := s.arg()
+	keys := make([]string, 0, len(arg))
+	for k := range arg {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte('|')
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(arg[k])
+	}
+	return b.String()
+}
+
+func argsWithoutChannel(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		if k != "channel" {
+			out[k] = v
+		}
+	}
+	return out
+}
