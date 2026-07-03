@@ -1,7 +1,9 @@
 package okx
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -78,6 +80,140 @@ func TestDecodeTypedWSMessage(t *testing.T) {
 	}
 	if len(got.Data) != 1 || got.Data[0].OrdID != "1" || got.Data[0].State != "filled" {
 		t.Fatalf("unexpected orders: %+v", got.Data)
+	}
+}
+
+func TestDecodeTypedAccountWSMessage(t *testing.T) {
+	msg := WSMessage{
+		Arg:  map[string]string{"channel": "account", "ccy": "BTC"},
+		Data: json.RawMessage(`[{"uTime":"1597026383085","totalEq":"10","details":[{"ccy":"BTC","availBal":"1","availEq":"2","uTime":"1597026383085"}]}]`),
+		Raw:  json.RawMessage(`{"data":[]}`),
+	}
+	got := decodeTypedWSMessage[AccountUpdate](msg)
+	if got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	if len(got.Data) != 1 || got.Data[0].Details[0].Ccy != "BTC" || got.Data[0].Details[0].AvailBal != "1" {
+		t.Fatalf("unexpected account update: %+v", got.Data)
+	}
+}
+
+func TestOrderBookChannelHelpers(t *testing.T) {
+	tests := []struct {
+		depth       int
+		wantDepth   int
+		wantChannel string
+	}{
+		{depth: 1, wantDepth: 1, wantChannel: "bbo-tbt"},
+		{depth: 5, wantDepth: 5, wantChannel: "books5"},
+		{depth: 20, wantDepth: 50, wantChannel: "books50-l2-tbt"},
+		{depth: 400, wantDepth: 400, wantChannel: "books-l2-tbt"},
+	}
+	for _, tt := range tests {
+		if got := OrderBookDepth(tt.depth); got != tt.wantDepth {
+			t.Fatalf("OrderBookDepth(%d) = %d, want %d", tt.depth, got, tt.wantDepth)
+		}
+		if got := OrderBookChannel(tt.depth); got != tt.wantChannel {
+			t.Fatalf("OrderBookChannel(%d) = %q, want %q", tt.depth, got, tt.wantChannel)
+		}
+		if got := OrderBookDepthFromChannel(tt.wantChannel); got != tt.wantDepth {
+			t.Fatalf("OrderBookDepthFromChannel(%q) = %d, want %d", tt.wantChannel, got, tt.wantDepth)
+		}
+	}
+	if got := OrderBookDepthFromChannel("books"); got != 400 {
+		t.Fatalf("OrderBookDepthFromChannel(books) = %d, want 400", got)
+	}
+}
+
+func TestWSTradeOperationMatchesResponseByIDAndOp(t *testing.T) {
+	client := NewWSClient()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		item := <-client.writeCh
+		var req struct {
+			ID   string              `json:"id"`
+			Op   string              `json:"op"`
+			Args []PlaceOrderRequest `json:"args"`
+		}
+		if err := json.Unmarshal(item.payload, &req); err != nil {
+			item.errCh <- err
+			return
+		}
+		if req.ID == "" || req.Op != "order" || len(req.Args) != 1 || req.Args[0].InstID != "BTC-USDT" || req.Args[0].InstIDCode != 123456 {
+			item.errCh <- fmt.Errorf("unexpected request: %+v", req)
+			return
+		}
+		item.errCh <- nil
+		raw, err := json.Marshal(map[string]any{
+			"id":   req.ID,
+			"op":   req.Op,
+			"code": "0",
+			"msg":  "",
+			"data": []map[string]string{{"ordId": "1", "sCode": "0"}},
+		})
+		if err != nil {
+			return
+		}
+		client.handleRaw(raw)
+	}()
+
+	acks, err := client.PlaceOrder(ctx, PlaceOrderRequest{
+		InstID:     "BTC-USDT",
+		InstIDCode: 123456,
+		TdMode:     "cash",
+		Side:       "buy",
+		OrdType:    "limit",
+		Sz:         "1",
+		Px:         "100",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acks) != 1 || acks[0].OrdID != "1" || acks[0].SCode != "0" {
+		t.Fatalf("unexpected acks: %+v", acks)
+	}
+	<-done
+}
+
+func TestWSTradeOperationErrorSupportsAs(t *testing.T) {
+	client := NewWSClient()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	go func() {
+		item := <-client.writeCh
+		var req struct {
+			ID string `json:"id"`
+			Op string `json:"op"`
+		}
+		if err := json.Unmarshal(item.payload, &req); err != nil {
+			item.errCh <- err
+			return
+		}
+		item.errCh <- nil
+		raw, _ := json.Marshal(map[string]string{
+			"id":   req.ID,
+			"op":   req.Op,
+			"code": "50011",
+			"msg":  "Rate limit reached",
+		})
+		client.handleRaw(raw)
+	}()
+
+	_, err := client.AmendOrder(ctx, AmendOrderRequest{InstID: "BTC-USDT", OrdID: "1", NewPx: "101"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("errors.Is rate limited = false, err=%v", err)
+	}
+	var okxErr *OKXError
+	if !errors.As(err, &okxErr) || okxErr.Code != "50011" {
+		t.Fatalf("unexpected OKXError: %#v err=%v", okxErr, err)
 	}
 }
 

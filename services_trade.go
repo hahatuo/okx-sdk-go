@@ -133,3 +133,39 @@ func (s *TradeService) OrdersPending(ctx context.Context, req OrdersPendingReque
 	}, &out)
 	return out, err
 }
+
+type FillsHistoryRequest struct {
+	InstType   string
+	Uly        string
+	InstFamily string
+	InstID     string
+	OrdID      string
+	After      string
+	Before     string
+	Begin      string
+	End        string
+	Limit      string
+}
+
+func (s *TradeService) FillsHistory(ctx context.Context, req FillsHistoryRequest) ([]Fill, error) {
+	q := values()
+	setIfNotEmpty(q, "instType", req.InstType)
+	setIfNotEmpty(q, "uly", req.Uly)
+	setIfNotEmpty(q, "instFamily", req.InstFamily)
+	setIfNotEmpty(q, "instId", req.InstID)
+	setIfNotEmpty(q, "ordId", req.OrdID)
+	setIfNotEmpty(q, "after", req.After)
+	setIfNotEmpty(q, "before", req.Before)
+	setIfNotEmpty(q, "begin", req.Begin)
+	setIfNotEmpty(q, "end", req.End)
+	setIfNotEmpty(q, "limit", req.Limit)
+	var out []Fill
+	err := s.client.do(ctx, requestSpec{
+		method:  http.MethodGet,
+		path:    "/api/v5/trade/fills-history",
+		query:   q,
+		auth:    true,
+		rateKey: "private:trade:fills-history",
+	}, &out)
+	return out, err
+}

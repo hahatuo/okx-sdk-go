@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -56,7 +57,9 @@ type WSClient struct {
 	done    chan struct{}
 
 	pending map[string]chan WSAck
+	ops     map[string]chan WSOperationResponse
 	subs    map[string]wsSubscriptionState
+	opSeq   int64
 }
 
 type wsWrite struct {
@@ -80,6 +83,25 @@ type WSMessage struct {
 	Raw    json.RawMessage
 }
 
+type WSOperationResponse struct {
+	ID      string          `json:"id,omitempty"`
+	Op      string          `json:"op,omitempty"`
+	Event   string          `json:"event,omitempty"`
+	Code    string          `json:"code,omitempty"`
+	Msg     string          `json:"msg,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
+	InTime  string          `json:"inTime,omitempty"`
+	OutTime string          `json:"outTime,omitempty"`
+	Raw     json.RawMessage `json:"-"`
+}
+
+func (r WSOperationResponse) DecodeData(out any) error {
+	if len(r.Data) == 0 || out == nil {
+		return nil
+	}
+	return json.Unmarshal(r.Data, out)
+}
+
 type Subscription struct {
 	Channel string
 	Args    map[string]string
@@ -98,6 +120,7 @@ func NewWSClient(opts ...WSOption) *WSClient {
 		writeCh: make(chan wsWrite, 128),
 		done:    make(chan struct{}),
 		pending: make(map[string]chan WSAck),
+		ops:     make(map[string]chan WSOperationResponse),
 		subs:    make(map[string]wsSubscriptionState),
 	}
 	for _, opt := range opts {
@@ -148,6 +171,75 @@ func (c *WSClient) Login(ctx context.Context) error {
 		return wrapOKXError(&OKXError{Code: ack.Code, Message: ack.Msg})
 	}
 	return nil
+}
+
+func (c *WSClient) Do(ctx context.Context, op string, args ...any) (WSOperationResponse, error) {
+	op = strings.TrimSpace(op)
+	if op == "" {
+		return WSOperationResponse{}, errors.New("okx ws: operation is required")
+	}
+	id := strconvFormatUnix(atomic.AddInt64(&c.opSeq, 1))
+	req := map[string]any{
+		"id":   id,
+		"op":   op,
+		"args": args,
+	}
+	return c.sendOperationAndWait(ctx, operationPendingKey(id, op), req)
+}
+
+func (c *WSClient) PlaceOrder(ctx context.Context, req PlaceOrderRequest) ([]OrderAck, error) {
+	return c.tradeOperation(ctx, "order", req)
+}
+
+func (c *WSClient) PlaceMultipleOrders(ctx context.Context, req []PlaceOrderRequest) ([]OrderAck, error) {
+	args := make([]any, 0, len(req))
+	for i := range req {
+		args = append(args, req[i])
+	}
+	return c.tradeOperationArgs(ctx, "batch-orders", args...)
+}
+
+func (c *WSClient) AmendOrder(ctx context.Context, req AmendOrderRequest) ([]OrderAck, error) {
+	return c.tradeOperation(ctx, "amend-order", req)
+}
+
+func (c *WSClient) AmendMultipleOrders(ctx context.Context, req []AmendOrderRequest) ([]OrderAck, error) {
+	args := make([]any, 0, len(req))
+	for i := range req {
+		args = append(args, req[i])
+	}
+	return c.tradeOperationArgs(ctx, "batch-amend-orders", args...)
+}
+
+func (c *WSClient) CancelOrder(ctx context.Context, req CancelOrderRequest) ([]OrderAck, error) {
+	return c.tradeOperation(ctx, "cancel-order", req)
+}
+
+func (c *WSClient) CancelMultipleOrders(ctx context.Context, req []CancelOrderRequest) ([]OrderAck, error) {
+	args := make([]any, 0, len(req))
+	for i := range req {
+		args = append(args, req[i])
+	}
+	return c.tradeOperationArgs(ctx, "batch-cancel-orders", args...)
+}
+
+func (c *WSClient) tradeOperation(ctx context.Context, op string, arg any) ([]OrderAck, error) {
+	return c.tradeOperationArgs(ctx, op, arg)
+}
+
+func (c *WSClient) tradeOperationArgs(ctx context.Context, op string, args ...any) ([]OrderAck, error) {
+	resp, err := c.Do(ctx, op, args...)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Code != "" && resp.Code != "0" && len(resp.Data) == 0 {
+		return nil, wrapOKXError(&OKXError{Code: resp.Code, Message: resp.Msg, Raw: resp.Raw})
+	}
+	var out []OrderAck
+	if err := resp.DecodeData(&out); err != nil {
+		return nil, fmt.Errorf("okx ws: decode %s response: %w", op, err)
+	}
+	return out, nil
 }
 
 func (c *WSClient) Subscribe(ctx context.Context, sub Subscription) (<-chan WSMessage, error) {
@@ -240,7 +332,37 @@ func (c *WSClient) sendAndWait(ctx context.Context, pendingKey string, req any) 
 	}
 }
 
+func (c *WSClient) sendOperationAndWait(ctx context.Context, pendingKey string, req any) (WSOperationResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	respCh := make(chan WSOperationResponse, 1)
+	c.mu.Lock()
+	c.ops[pendingKey] = respCh
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.ops, pendingKey)
+		c.mu.Unlock()
+	}()
+
+	if err := c.sendJSON(ctx, req); err != nil {
+		return WSOperationResponse{}, err
+	}
+	select {
+	case resp := <-respCh:
+		return resp, nil
+	case <-ctx.Done():
+		return WSOperationResponse{}, ctx.Err()
+	case <-c.done:
+		return WSOperationResponse{}, errors.New("okx ws: client closed")
+	}
+}
+
 func (c *WSClient) sendJSON(ctx context.Context, v any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	payload, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("okx ws: encode message: %w", err)
@@ -337,19 +459,37 @@ func (c *WSClient) sendRaw(ctx context.Context, payload []byte) error {
 
 func (c *WSClient) handleRaw(raw []byte) {
 	var msg struct {
-		Event  string            `json:"event,omitempty"`
-		Code   string            `json:"code,omitempty"`
-		Msg    string            `json:"msg,omitempty"`
-		ConnID string            `json:"connId,omitempty"`
-		Arg    map[string]string `json:"arg,omitempty"`
-		Action string            `json:"action,omitempty"`
-		Data   json.RawMessage   `json:"data,omitempty"`
+		Event   string            `json:"event,omitempty"`
+		Code    string            `json:"code,omitempty"`
+		Msg     string            `json:"msg,omitempty"`
+		ConnID  string            `json:"connId,omitempty"`
+		ID      string            `json:"id,omitempty"`
+		Op      string            `json:"op,omitempty"`
+		Arg     map[string]string `json:"arg,omitempty"`
+		Action  string            `json:"action,omitempty"`
+		Data    json.RawMessage   `json:"data,omitempty"`
+		InTime  string            `json:"inTime,omitempty"`
+		OutTime string            `json:"outTime,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		c.logger.Warn("okx ws decode failed", "error", err)
 		return
 	}
 
+	if msg.ID != "" && msg.Op != "" {
+		c.dispatchOperation(WSOperationResponse{
+			ID:      msg.ID,
+			Op:      msg.Op,
+			Event:   msg.Event,
+			Code:    msg.Code,
+			Msg:     msg.Msg,
+			Data:    msg.Data,
+			InTime:  msg.InTime,
+			OutTime: msg.OutTime,
+			Raw:     append(json.RawMessage(nil), raw...),
+		})
+		return
+	}
 	if msg.Event != "" {
 		c.dispatchAck(msg.Event, WSAck{
 			Event:  msg.Event,
@@ -378,6 +518,17 @@ func (c *WSClient) handleRaw(raw []byte) {
 	}
 }
 
+func (c *WSClient) dispatchOperation(resp WSOperationResponse) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if ch := c.ops[operationPendingKey(resp.ID, resp.Op)]; ch != nil {
+		select {
+		case ch <- resp:
+		default:
+		}
+	}
+}
+
 func (c *WSClient) dispatchAck(event string, ack WSAck) {
 	keys := []string{event}
 	if ack.Arg != nil && ack.Arg["channel"] != "" {
@@ -401,6 +552,10 @@ func (c *WSClient) dispatchAck(event string, ack WSAck) {
 			}
 		}
 	}
+}
+
+func operationPendingKey(id, op string) string {
+	return "operation:" + op + ":" + id
 }
 
 func (c *WSClient) removeSubscription(key string, closeCh bool) {

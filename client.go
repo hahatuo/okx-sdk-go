@@ -120,7 +120,14 @@ func (c *Client) do(ctx context.Context, spec requestSpec, out any) error {
 		return fmt.Errorf("okx: decode envelope: %w", err)
 	}
 	if envelope.Code != "0" {
-		return wrapOKXError(&OKXError{Code: envelope.Code, Message: envelope.Msg, Raw: respBody})
+		parsed, _ := ParseErrorEnvelope(respBody)
+		return wrapOKXError(&OKXError{
+			Code:     envelope.Code,
+			Message:  envelope.Msg,
+			Data:     append(json.RawMessage(nil), envelope.Data...),
+			Raw:      respBody,
+			Envelope: parsed,
+		})
 	}
 	if out == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil

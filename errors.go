@@ -1,6 +1,7 @@
 package okx
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,9 +17,11 @@ var (
 )
 
 type OKXError struct {
-	Code    string
-	Message string
-	Raw     []byte
+	Code     string
+	Message  string
+	Data     json.RawMessage
+	Raw      []byte
+	Envelope *ErrorEnvelope
 }
 
 func (e *OKXError) Error() string {
@@ -26,6 +29,40 @@ func (e *OKXError) Error() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("okx: api error code=%s msg=%s", e.Code, e.Message)
+}
+
+func (e *OKXError) DecodeData(out any) error {
+	if e == nil || len(e.Data) == 0 || out == nil {
+		return nil
+	}
+	return json.Unmarshal(e.Data, out)
+}
+
+type ErrorEnvelope struct {
+	Code string     `json:"code"`
+	Msg  string     `json:"msg"`
+	Data []ErrorRow `json:"data"`
+}
+
+type ErrorRow struct {
+	OrdID   string `json:"ordId"`
+	ClOrdID string `json:"clOrdId"`
+	ReqID   string `json:"reqId"`
+	SCode   string `json:"sCode"`
+	SMsg    string `json:"sMsg"`
+	Tag     string `json:"tag"`
+	TS      string `json:"ts"`
+}
+
+func ParseErrorEnvelope(raw []byte) (*ErrorEnvelope, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var env ErrorEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, err
+	}
+	return &env, nil
 }
 
 type HTTPError struct {

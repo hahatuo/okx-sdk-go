@@ -16,6 +16,7 @@ type BalanceDetail struct {
 	Ccy      string `json:"ccy"`
 	Eq       string `json:"eq"`
 	AvailBal string `json:"availBal"`
+	AvailEq  string `json:"availEq"`
 	CashBal  string `json:"cashBal"`
 	UTime    string `json:"uTime"`
 }
@@ -32,7 +33,8 @@ type Position struct {
 }
 
 type PlaceOrderRequest struct {
-	InstID         string            `json:"instId"`
+	InstID         string            `json:"instId,omitempty"`
+	InstIDCode     int64             `json:"instIdCode,omitempty"`
 	TdMode         string            `json:"tdMode"`
 	Side           string            `json:"side"`
 	OrdType        string            `json:"ordType"`
@@ -69,19 +71,21 @@ type OrderAck struct {
 }
 
 type CancelOrderRequest struct {
-	InstID  string `json:"instId"`
-	OrdID   string `json:"ordId,omitempty"`
-	ClOrdID string `json:"clOrdId,omitempty"`
+	InstID     string `json:"instId,omitempty"`
+	InstIDCode int64  `json:"instIdCode,omitempty"`
+	OrdID      string `json:"ordId,omitempty"`
+	ClOrdID    string `json:"clOrdId,omitempty"`
 }
 
 type AmendOrderRequest struct {
-	InstID    string `json:"instId"`
-	CxlOnFail *bool  `json:"cxlOnFail,omitempty"`
-	OrdID     string `json:"ordId,omitempty"`
-	ClOrdID   string `json:"clOrdId,omitempty"`
-	ReqID     string `json:"reqId,omitempty"`
-	NewSz     string `json:"newSz,omitempty"`
-	NewPx     string `json:"newPx,omitempty"`
+	InstID     string `json:"instId,omitempty"`
+	InstIDCode int64  `json:"instIdCode,omitempty"`
+	CxlOnFail  *bool  `json:"cxlOnFail,omitempty"`
+	OrdID      string `json:"ordId,omitempty"`
+	ClOrdID    string `json:"clOrdId,omitempty"`
+	ReqID      string `json:"reqId,omitempty"`
+	NewSz      string `json:"newSz,omitempty"`
+	NewPx      string `json:"newPx,omitempty"`
 }
 
 type Order struct {
@@ -126,6 +130,33 @@ type Order struct {
 	Msg             string `json:"msg"`
 }
 
+type Fill struct {
+	InstType        string `json:"instType"`
+	InstID          string `json:"instId"`
+	TradeID         string `json:"tradeId"`
+	OrdID           string `json:"ordId"`
+	ClOrdID         string `json:"clOrdId"`
+	BillID          string `json:"billId"`
+	Tag             string `json:"tag"`
+	FillPx          string `json:"fillPx"`
+	FillSz          string `json:"fillSz"`
+	FillIdxPx       string `json:"fillIdxPx"`
+	FillPnl         string `json:"fillPnl"`
+	FillPxVol       string `json:"fillPxVol"`
+	FillPxUsd       string `json:"fillPxUsd"`
+	FillMarkVol     string `json:"fillMarkVol"`
+	FillFwdPx       string `json:"fillFwdPx"`
+	FillMarkPx      string `json:"fillMarkPx"`
+	Side            string `json:"side"`
+	PosSide         string `json:"posSide"`
+	ExecType        string `json:"execType"`
+	FeeCcy          string `json:"feeCcy"`
+	Fee             string `json:"fee"`
+	TS              string `json:"ts"`
+	FillTime        string `json:"fillTime"`
+	FillNotionalUsd string `json:"fillNotionalUsd"`
+}
+
 type Ticker struct {
 	InstType  string `json:"instType"`
 	InstID    string `json:"instId"`
@@ -150,6 +181,45 @@ type OrderBook struct {
 	Checksum  StringOrNumber `json:"checksum,omitempty"`
 	SeqID     StringOrNumber `json:"seqId,omitempty"`
 	PrevSeqID StringOrNumber `json:"prevSeqId,omitempty"`
+}
+
+type AccountUpdate struct {
+	UTime       string                `json:"uTime"`
+	TotalEq     string                `json:"totalEq"`
+	IsoEq       string                `json:"isoEq"`
+	AdjEq       string                `json:"adjEq"`
+	OrdFroz     string                `json:"ordFroz"`
+	Imr         string                `json:"imr"`
+	Mmr         string                `json:"mmr"`
+	BorrowFroz  string                `json:"borrowFroz"`
+	MgnRatio    string                `json:"mgnRatio"`
+	NotionalUsd string                `json:"notionalUsd"`
+	Details     []AccountUpdateDetail `json:"details"`
+}
+
+type AccountUpdateDetail struct {
+	Ccy           string `json:"ccy"`
+	Eq            string `json:"eq"`
+	CashBal       string `json:"cashBal"`
+	UTime         string `json:"uTime"`
+	IsoEq         string `json:"isoEq"`
+	AvailEq       string `json:"availEq"`
+	DisEq         string `json:"disEq"`
+	FixedBal      string `json:"fixedBal"`
+	AvailBal      string `json:"availBal"`
+	FrozenBal     string `json:"frozenBal"`
+	OrdFrozen     string `json:"ordFrozen"`
+	Liab          string `json:"liab"`
+	Upl           string `json:"upl"`
+	UplLiab       string `json:"uplLiab"`
+	CrossLiab     string `json:"crossLiab"`
+	IsoLiab       string `json:"isoLiab"`
+	MgnRatio      string `json:"mgnRatio"`
+	Interest      string `json:"interest"`
+	Twap          string `json:"twap"`
+	MaxLoan       string `json:"maxLoan"`
+	EqUsd         string `json:"eqUsd"`
+	NotionalLever string `json:"notionalLever"`
 }
 
 type StringOrNumber string
@@ -229,6 +299,7 @@ type Platform24Volume struct {
 type Instrument struct {
 	InstType   string `json:"instType"`
 	InstID     string `json:"instId"`
+	InstIDCode int64  `json:"instIdCode,omitempty"`
 	InstFamily string `json:"instFamily"`
 	BaseCcy    string `json:"baseCcy"`
 	QuoteCcy   string `json:"quoteCcy"`

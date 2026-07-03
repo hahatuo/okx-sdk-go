@@ -71,6 +71,53 @@ func TestRESTErrorSupportsIsAndAs(t *testing.T) {
 	}
 }
 
+func TestRESTErrorPreservesEnvelopeRows(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(map[string]any{
+			"code": "1",
+			"msg":  "All operations failed",
+			"data": []map[string]string{{
+				"ordId":   "1",
+				"clOrdId": "client-1",
+				"reqId":   "req-1",
+				"sCode":   "51008",
+				"sMsg":    "Insufficient balance",
+			}},
+		})
+	})}
+
+	client := NewRestClient(WithBaseURL("https://local.test"), WithHTTPClient(httpClient), WithCredentials("key", "secret", "pass"))
+	_, err := client.Trade.PlaceMultipleOrders(context.Background(), []PlaceOrderRequest{{
+		InstID:  "BTC-USDT",
+		TdMode:  "cash",
+		Side:    "buy",
+		OrdType: "limit",
+		Sz:      "1",
+		Px:      "100",
+	}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var okxErr *OKXError
+	if !errors.As(err, &okxErr) {
+		t.Fatalf("errors.As OKXError = false, err=%v", err)
+	}
+	if okxErr.Envelope == nil || len(okxErr.Envelope.Data) != 1 {
+		t.Fatalf("missing envelope rows: %#v", okxErr.Envelope)
+	}
+	row := okxErr.Envelope.Data[0]
+	if row.SCode != "51008" || row.ClOrdID != "client-1" || row.ReqID != "req-1" {
+		t.Fatalf("unexpected envelope row: %+v", row)
+	}
+	var rows []ErrorRow
+	if err := okxErr.DecodeData(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].OrdID != "1" {
+		t.Fatalf("unexpected decoded rows: %+v", rows)
+	}
+}
+
 func TestIndexComponentsDecodesObjectData(t *testing.T) {
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return jsonResponse(map[string]any{
@@ -98,6 +145,41 @@ func TestIndexComponentsDecodesObjectData(t *testing.T) {
 	}
 	if got.Index != "BTC-USDT" || len(got.Components) != 1 {
 		t.Fatalf("unexpected components: %+v", got)
+	}
+}
+
+func TestTradeFillsHistoryEndpoint(t *testing.T) {
+	var gotPath string
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotPath = r.URL.RequestURI()
+		return jsonResponse(map[string]any{
+			"code": "0",
+			"msg":  "",
+			"data": []map[string]string{{
+				"instType": "SPOT",
+				"instId":   "BTC-USDT",
+				"tradeId":  "1",
+				"ordId":    "2",
+				"fillPx":   "100",
+				"fillSz":   "0.1",
+			}},
+		})
+	})}
+
+	client := NewRestClient(WithBaseURL("https://local.test"), WithHTTPClient(httpClient), WithCredentials("key", "secret", "pass"))
+	fills, err := client.Trade.FillsHistory(context.Background(), FillsHistoryRequest{
+		InstType: "SPOT",
+		InstID:   "BTC-USDT",
+		Limit:    "100",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/v5/trade/fills-history?instId=BTC-USDT&instType=SPOT&limit=100" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if len(fills) != 1 || fills[0].TradeID != "1" || fills[0].FillPx != "100" {
+		t.Fatalf("unexpected fills: %+v", fills)
 	}
 }
 
