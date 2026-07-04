@@ -12,7 +12,9 @@ File:
 Triggers:
 
 - pull requests targeting `main`
+- pull requests targeting `dev`
 - pushes to `main`
+- pushes to `dev`
 - manual `workflow_dispatch`
 
 Checks:
@@ -40,6 +42,7 @@ File:
 Triggers:
 
 - pushes to `main`
+- pushes to `dev`
 - daily schedule
 - manual `workflow_dispatch`
 
@@ -106,7 +109,9 @@ File:
 Triggers:
 
 - pull requests targeting `main`
+- pull requests targeting `dev`
 - pushes to `main`
+- pushes to `dev`
 - weekly schedule
 - manual `workflow_dispatch`
 
