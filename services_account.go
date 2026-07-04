@@ -75,3 +75,15 @@ func (s *AccountService) SetLeverage(ctx context.Context, req SetLeverageRequest
 	}, &out)
 	return out, err
 }
+
+func (s *AccountService) SetFeeType(ctx context.Context, req SetFeeTypeRequest) ([]FeeType, error) {
+	var out []FeeType
+	err := s.client.do(ctx, requestSpec{
+		method:  http.MethodPost,
+		path:    "/api/v5/account/set-fee-type",
+		body:    req,
+		auth:    true,
+		rateKey: "private:account:set-fee-type",
+	}, &out)
+	return out, err
+}

@@ -179,6 +179,58 @@ func TestWSTradeOperationMatchesResponseByIDAndOp(t *testing.T) {
 	<-done
 }
 
+func TestWSBatchTradeOperationPreservesPartialSuccessRows(t *testing.T) {
+	client := NewWSClient()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		item := <-client.writeCh
+		var req struct {
+			ID   string              `json:"id"`
+			Op   string              `json:"op"`
+			Args []PlaceOrderRequest `json:"args"`
+		}
+		if err := json.Unmarshal(item.payload, &req); err != nil {
+			item.errCh <- err
+			return
+		}
+		if req.ID == "" || req.Op != "batch-orders" || len(req.Args) != 2 {
+			item.errCh <- fmt.Errorf("unexpected request: %+v", req)
+			return
+		}
+		item.errCh <- nil
+		raw, err := json.Marshal(map[string]any{
+			"id":   req.ID,
+			"op":   req.Op,
+			"code": "2",
+			"msg":  "Bulk operation partially successful",
+			"data": []map[string]string{
+				{"ordId": "1", "clOrdId": "slot-1", "sCode": "0"},
+				{"ordId": "", "clOrdId": "slot-2", "sCode": "51008", "sMsg": "Insufficient balance"},
+			},
+		})
+		if err != nil {
+			return
+		}
+		client.handleRaw(raw)
+	}()
+
+	acks, err := client.PlaceMultipleOrders(ctx, []PlaceOrderRequest{
+		{InstID: "BTC-USDT", InstIDCode: 123456, TdMode: "cash", Side: "buy", OrdType: "limit", Sz: "1", Px: "100", ClOrdID: "slot-1"},
+		{InstID: "BTC-USDT", InstIDCode: 123456, TdMode: "cash", Side: "buy", OrdType: "limit", Sz: "1", Px: "99", ClOrdID: "slot-2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acks) != 2 || acks[0].SCode != "0" || acks[1].SCode != "51008" || acks[1].ClOrdID != "slot-2" {
+		t.Fatalf("unexpected acks: %+v", acks)
+	}
+	<-done
+}
+
 func TestWSTradeOperationErrorSupportsAs(t *testing.T) {
 	client := NewWSClient()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

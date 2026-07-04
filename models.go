@@ -366,6 +366,14 @@ type MaxAvailSize struct {
 	MaxSell string `json:"maxSell"`
 }
 
+type SetFeeTypeRequest struct {
+	FeeType string `json:"feeType"`
+}
+
+type FeeType struct {
+	FeeType string `json:"feeType"`
+}
+
 type SetLeverageRequest struct {
 	InstID  string `json:"instId,omitempty"`
 	Ccy     string `json:"ccy,omitempty"`
