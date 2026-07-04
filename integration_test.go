@@ -16,10 +16,10 @@ type wsDepthChannelCase struct {
 }
 
 var wsDepthChannelCatalog = map[string]wsDepthChannelCase{
-	"bbo-tbt":         {name: "best bid offer", channel: "bbo-tbt", maxLevels: 1},
-	"books5":          {name: "five levels", channel: "books5", maxLevels: 5},
-	"books50-l2-tbt":  {name: "fifty levels", channel: "books50-l2-tbt", maxLevels: 50},
-	"books-l2-tbt":    {name: "four hundred levels", channel: "books-l2-tbt", maxLevels: 400},
+	"bbo-tbt":        {name: "best bid offer", channel: "bbo-tbt", maxLevels: 1},
+	"books5":         {name: "five levels", channel: "books5", maxLevels: 5},
+	"books50-l2-tbt": {name: "fifty levels", channel: "books50-l2-tbt", maxLevels: 50},
+	"books-l2-tbt":   {name: "four hundred levels", channel: "books-l2-tbt", maxLevels: 400},
 }
 
 func TestIntegrationReadOnlyAccountBalance(t *testing.T) {
