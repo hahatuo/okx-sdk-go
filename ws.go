@@ -20,6 +20,12 @@ const (
 	defaultWSPingInterval = 25 * time.Second
 )
 
+var (
+	errWSAlreadyConnected = errors.New("okx ws: already connected")
+	errWSClientClosed     = errors.New("okx ws: client closed")
+	errWSNotConnected     = errors.New("okx ws: not connected")
+)
+
 type WSOption func(*WSClient)
 
 func WithWSURL(url string) WSOption {
@@ -131,6 +137,13 @@ func NewWSClient(opts ...WSOption) *WSClient {
 }
 
 func (c *WSClient) Connect(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := c.ensureCanConnect(); err != nil {
+		return err
+	}
+
 	conn, _, err := websocket.Dial(ctx, c.url, nil)
 	if err != nil {
 		return fmt.Errorf("okx ws: dial: %w", err)
@@ -143,7 +156,13 @@ func (c *WSClient) Connect(ctx context.Context) error {
 		c.mu.Unlock()
 		loopCancel()
 		_ = conn.Close(websocket.StatusNormalClosure, "")
-		return errors.New("okx ws: client closed")
+		return errWSClientClosed
+	}
+	if c.conn != nil {
+		c.mu.Unlock()
+		loopCancel()
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+		return errWSAlreadyConnected
 	}
 	c.conn = conn
 	c.loopCancel = loopCancel
@@ -318,6 +337,9 @@ func (c *WSClient) Close() error {
 }
 
 func (c *WSClient) sendAndWait(ctx context.Context, pendingKey string, req any) (WSAck, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ackCh := make(chan WSAck, 1)
 	c.mu.Lock()
 	c.pending[pendingKey] = ackCh
@@ -337,7 +359,7 @@ func (c *WSClient) sendAndWait(ctx context.Context, pendingKey string, req any) 
 	case <-ctx.Done():
 		return WSAck{}, ctx.Err()
 	case <-c.done:
-		return WSAck{}, errors.New("okx ws: client closed")
+		return WSAck{}, errWSClientClosed
 	}
 }
 
@@ -364,13 +386,16 @@ func (c *WSClient) sendOperationAndWait(ctx context.Context, pendingKey string, 
 	case <-ctx.Done():
 		return WSOperationResponse{}, ctx.Err()
 	case <-c.done:
-		return WSOperationResponse{}, errors.New("okx ws: client closed")
+		return WSOperationResponse{}, errWSClientClosed
 	}
 }
 
 func (c *WSClient) sendJSON(ctx context.Context, v any) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := c.ensureConnected(); err != nil {
+		return err
 	}
 	payload, err := json.Marshal(v)
 	if err != nil {
@@ -382,7 +407,7 @@ func (c *WSClient) sendJSON(ctx context.Context, v any) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-c.done:
-		return errors.New("okx ws: client closed")
+		return errWSClientClosed
 	}
 	select {
 	case err := <-errCh:
@@ -390,7 +415,7 @@ func (c *WSClient) sendJSON(ctx context.Context, v any) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-c.done:
-		return errors.New("okx ws: client closed")
+		return errWSClientClosed
 	}
 }
 
@@ -454,13 +479,19 @@ func (c *WSClient) pingLoop(ctx context.Context) {
 }
 
 func (c *WSClient) sendRaw(ctx context.Context, payload []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := c.ensureConnected(); err != nil {
+		return err
+	}
 	errCh := make(chan error, 1)
 	select {
 	case c.writeCh <- wsWrite{ctx: ctx, payload: payload, errCh: errCh}:
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-c.done:
-		return errors.New("okx ws: client closed")
+		return errWSClientClosed
 	}
 	select {
 	case err := <-errCh:
@@ -468,7 +499,7 @@ func (c *WSClient) sendRaw(ctx context.Context, payload []byte) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-c.done:
-		return errors.New("okx ws: client closed")
+		return errWSClientClosed
 	}
 }
 
@@ -520,15 +551,21 @@ func (c *WSClient) handleRaw(raw []byte) {
 	}
 	sub := Subscription{Channel: msg.Arg["channel"], Args: argsWithoutChannel(msg.Arg)}
 	key := sub.key()
+	out := WSMessage{Arg: msg.Arg, Action: msg.Action, Data: msg.Data, Raw: append(json.RawMessage(nil), raw...)}
+	dropped := false
 	c.mu.RLock()
 	state, ok := c.subs[key]
-	c.mu.RUnlock()
 	if !ok {
+		c.mu.RUnlock()
 		return
 	}
 	select {
-	case state.ch <- WSMessage{Arg: msg.Arg, Action: msg.Action, Data: msg.Data, Raw: append(json.RawMessage(nil), raw...)}:
+	case state.ch <- out:
 	default:
+		dropped = true
+	}
+	c.mu.RUnlock()
+	if dropped {
 		c.logger.Warn("okx ws subscription channel full", "key", key)
 	}
 }
@@ -635,4 +672,28 @@ func argsWithoutChannel(in map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+func (c *WSClient) ensureCanConnect() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return errWSClientClosed
+	}
+	if c.conn != nil {
+		return errWSAlreadyConnected
+	}
+	return nil
+}
+
+func (c *WSClient) ensureConnected() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return errWSClientClosed
+	}
+	if c.conn == nil {
+		return errWSNotConnected
+	}
+	return nil
 }
