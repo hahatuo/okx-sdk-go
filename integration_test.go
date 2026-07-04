@@ -112,7 +112,11 @@ func TestIntegrationDemoTradingPrivateWebSocketLogin(t *testing.T) {
 	if err := ws.Connect(ctx); err != nil {
 		t.Fatalf("connect demo private ws: %v", err)
 	}
-	defer ws.Close()
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("close demo private ws: %v", err)
+		}
+	}()
 
 	if err := ws.Login(ctx); err != nil {
 		t.Fatalf("login demo private ws: %v", err)
@@ -152,7 +156,11 @@ func TestIntegrationPublicOrderBookDepthChannels(t *testing.T) {
 			if err := ws.Connect(ctx); err != nil {
 				t.Fatalf("connect public ws: %v", err)
 			}
-			defer ws.Close()
+			defer func() {
+				if err := ws.Close(); err != nil {
+					t.Logf("close public ws: %v", err)
+				}
+			}()
 
 			ch, err := ws.Subscribe(ctx, Subscription{
 				Channel: tt.channel,

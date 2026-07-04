@@ -28,7 +28,11 @@ func main() {
 	if err := ws.Connect(ctx); err != nil {
 		log.Fatal(err)
 	}
-	defer ws.Close()
+	defer func() {
+		if err := ws.Close(); err != nil {
+			log.Printf("close websocket: %v", err)
+		}
+	}()
 
 	ch, err := ws.Subscribe(ctx, okx.Subscription{
 		Channel: channel,
