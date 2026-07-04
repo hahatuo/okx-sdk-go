@@ -52,7 +52,7 @@ jobs:
           fi
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v9.2.1
+        uses: golangci/golangci-lint-action@v9.3.0
 
       - name: Vet
         run: go vet ./...
