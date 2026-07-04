@@ -52,6 +52,13 @@ The workflow always runs the public WebSocket order book integration test with:
 OKX_WS_INTEGRATION=1 go test ./... -run TestIntegrationPublicOrderBookDepthChannels -count=1
 ```
 
+By default that test covers the stable `bbo-tbt` and `books5` channels. To
+exercise deeper books as well, set:
+
+```bash
+OKX_WS_DEPTH_CHANNELS=bbo-tbt,books5,books50-l2-tbt,books-l2-tbt
+```
+
 Private REST integration runs only when these repository secrets are configured:
 
 - `OKX_API_KEY`

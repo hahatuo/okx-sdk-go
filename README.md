@@ -171,3 +171,6 @@ go vet ./...
 Read-only account integration tests run when `OKX_API_KEY`, `OKX_SECRET_KEY`, and `OKX_PASSPHRASE` are set.
 
 Public WebSocket integration tests run when `OKX_WS_INTEGRATION=1`.
+By default they validate `bbo-tbt` and `books5`. Set
+`OKX_WS_DEPTH_CHANNELS=bbo-tbt,books5,books50-l2-tbt,books-l2-tbt` to include
+the deeper order book channels as well.

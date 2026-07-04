@@ -9,6 +9,19 @@ import (
 	"time"
 )
 
+type wsDepthChannelCase struct {
+	name      string
+	channel   string
+	maxLevels int
+}
+
+var wsDepthChannelCatalog = map[string]wsDepthChannelCase{
+	"bbo-tbt":         {name: "best bid offer", channel: "bbo-tbt", maxLevels: 1},
+	"books5":          {name: "five levels", channel: "books5", maxLevels: 5},
+	"books50-l2-tbt":  {name: "fifty levels", channel: "books50-l2-tbt", maxLevels: 50},
+	"books-l2-tbt":    {name: "four hundred levels", channel: "books-l2-tbt", maxLevels: 400},
+}
+
 func TestIntegrationReadOnlyAccountBalance(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("OKX_REST_INTEGRATION")) != "1" {
 		t.Skip("set OKX_REST_INTEGRATION=1 to run OKX REST integration tests")
@@ -133,16 +146,7 @@ func TestIntegrationPublicOrderBookDepthChannels(t *testing.T) {
 		instID = "BTC-USDT"
 	}
 
-	tests := []struct {
-		name      string
-		channel   string
-		maxLevels int
-	}{
-		{name: "best bid offer", channel: "bbo-tbt", maxLevels: 1},
-		{name: "five levels", channel: "books5", maxLevels: 5},
-		{name: "fifty levels", channel: "books50-l2-tbt", maxLevels: 50},
-		{name: "four hundred levels", channel: "books-l2-tbt", maxLevels: 400},
-	}
+	tests := publicWSDepthChannelCases(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -196,6 +200,32 @@ func TestIntegrationPublicOrderBookDepthChannels(t *testing.T) {
 			}
 		})
 	}
+}
+
+func publicWSDepthChannelCases(t *testing.T) []wsDepthChannelCase {
+	t.Helper()
+
+	configured := strings.TrimSpace(os.Getenv("OKX_WS_DEPTH_CHANNELS"))
+	if configured == "" {
+		configured = "bbo-tbt,books5"
+	}
+
+	var tests []wsDepthChannelCase
+	for _, item := range strings.Split(configured, ",") {
+		channel := strings.TrimSpace(item)
+		if channel == "" {
+			continue
+		}
+		testCase, ok := wsDepthChannelCatalog[channel]
+		if !ok {
+			t.Fatalf("unsupported OKX_WS_DEPTH_CHANNELS entry %q", channel)
+		}
+		tests = append(tests, testCase)
+	}
+	if len(tests) == 0 {
+		t.Fatal("OKX_WS_DEPTH_CHANNELS did not contain any valid channels")
+	}
+	return tests
 }
 
 func okxCredentialsFromEnv(t *testing.T) (string, string, string) {
