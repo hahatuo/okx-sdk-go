@@ -48,10 +48,11 @@ type WSClient struct {
 	logger      Logger
 	now         func() time.Time
 
-	mu        sync.RWMutex
-	conn      *websocket.Conn
-	closed    bool
-	closeOnce sync.Once
+	mu         sync.RWMutex
+	conn       *websocket.Conn
+	loopCancel context.CancelFunc
+	closed     bool
+	closeOnce  sync.Once
 
 	writeCh chan wsWrite
 	done    chan struct{}
@@ -135,19 +136,22 @@ func (c *WSClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("okx ws: dial: %w", err)
 	}
 	conn.SetReadLimit(8 << 20)
+	loopCtx, loopCancel := context.WithCancel(context.WithoutCancel(ctx))
 
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
+		loopCancel()
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 		return errors.New("okx ws: client closed")
 	}
 	c.conn = conn
+	c.loopCancel = loopCancel
 	c.mu.Unlock()
 
-	go c.writeLoop(conn)
-	go c.readLoop(conn)
-	go c.pingLoop()
+	go c.writeLoop(loopCtx, conn)
+	go c.readLoop(loopCtx, conn)
+	go c.pingLoop(loopCtx)
 	return nil
 }
 
@@ -295,11 +299,16 @@ func (c *WSClient) Close() error {
 		c.mu.Lock()
 		c.closed = true
 		conn := c.conn
+		loopCancel := c.loopCancel
 		c.conn = nil
+		c.loopCancel = nil
 		for key := range c.subs {
 			c.removeSubscriptionLocked(key, true)
 		}
 		c.mu.Unlock()
+		if loopCancel != nil {
+			loopCancel()
+		}
 		close(c.done)
 		if conn != nil {
 			err = conn.Close(websocket.StatusNormalClosure, "")
@@ -385,17 +394,19 @@ func (c *WSClient) sendJSON(ctx context.Context, v any) error {
 	}
 }
 
-func (c *WSClient) writeLoop(conn *websocket.Conn) {
+func (c *WSClient) writeLoop(ctx context.Context, conn *websocket.Conn) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-c.done:
 			return
 		case item := <-c.writeCh:
-			ctx := item.ctx
-			if ctx == nil {
-				ctx = context.Background()
+			writeBaseCtx := item.ctx
+			if writeBaseCtx == nil {
+				writeBaseCtx = ctx
 			}
-			writeCtx, cancel := context.WithTimeout(ctx, defaultWSWriteTimeout)
+			writeCtx, cancel := context.WithTimeout(writeBaseCtx, defaultWSWriteTimeout)
 			err := conn.Write(writeCtx, websocket.MessageText, item.payload)
 			cancel()
 			item.errCh <- err
@@ -403,11 +414,13 @@ func (c *WSClient) writeLoop(conn *websocket.Conn) {
 	}
 }
 
-func (c *WSClient) readLoop(conn *websocket.Conn) {
+func (c *WSClient) readLoop(ctx context.Context, conn *websocket.Conn) {
 	for {
-		msgType, raw, err := conn.Read(context.Background())
+		msgType, raw, err := conn.Read(ctx)
 		if err != nil {
-			c.logger.Warn("okx ws read stopped", "error", err)
+			if !errors.Is(err, context.Canceled) {
+				c.logger.Warn("okx ws read stopped", "error", err)
+			}
 			return
 		}
 		if msgType != websocket.MessageText {
@@ -420,18 +433,20 @@ func (c *WSClient) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (c *WSClient) pingLoop() {
+func (c *WSClient) pingLoop(ctx context.Context) {
 	ticker := time.NewTicker(defaultWSPingInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), defaultWSWriteTimeout)
-			err := c.sendRaw(ctx, []byte("ping"))
+			pingCtx, cancel := context.WithTimeout(ctx, defaultWSWriteTimeout)
+			err := c.sendRaw(pingCtx, []byte("ping"))
 			cancel()
-			if err != nil {
+			if err != nil && !errors.Is(err, context.Canceled) {
 				c.logger.Warn("okx ws ping failed", "error", err)
 			}
+		case <-ctx.Done():
+			return
 		case <-c.done:
 			return
 		}
