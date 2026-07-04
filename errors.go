@@ -38,6 +38,24 @@ func (e *OKXError) DecodeData(out any) error {
 	return json.Unmarshal(e.Data, out)
 }
 
+type PartialError struct {
+	Err *OKXError
+}
+
+func (e *PartialError) Error() string {
+	if e == nil || e.Err == nil {
+		return "okx: partial success"
+	}
+	return "okx: partial success: " + e.Err.Error()
+}
+
+func (e *PartialError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 type ErrorEnvelope struct {
 	Code string     `json:"code"`
 	Msg  string     `json:"msg"`

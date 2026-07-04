@@ -124,13 +124,22 @@ func (c *Client) do(ctx context.Context, spec requestSpec, out any) error {
 	}
 	if envelope.Code != "0" {
 		parsed, _ := ParseErrorEnvelope(respBody)
-		return wrapOKXError(&OKXError{
+		okxErr := &OKXError{
 			Code:     envelope.Code,
 			Message:  envelope.Msg,
 			Data:     append(json.RawMessage(nil), envelope.Data...),
 			Raw:      respBody,
 			Envelope: parsed,
-		})
+		}
+		if envelope.Code == "2" {
+			if out != nil && len(envelope.Data) > 0 && string(envelope.Data) != "null" {
+				if err := json.Unmarshal(envelope.Data, out); err != nil {
+					return fmt.Errorf("okx: decode partial data: %w", err)
+				}
+			}
+			return &PartialError{Err: okxErr}
+		}
+		return wrapOKXError(okxErr)
 	}
 	if out == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil
