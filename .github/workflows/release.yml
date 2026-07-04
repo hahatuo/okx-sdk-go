@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.23.x"
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Generate changelog
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          previous_tag="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
+
+          {
+            echo "## ${tag}"
+            echo
+            if [ -n "$previous_tag" ]; then
+              echo "Changes since ${previous_tag}:"
+              echo
+              git log --pretty=format:"- %s (%h)" "${previous_tag}..${tag}"
+            else
+              echo "Initial release."
+              echo
+              git log --pretty=format:"- %s (%h)" "${tag}"
+            fi
+          } > RELEASE_NOTES.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3.0.1
+        with:
+          body_path: RELEASE_NOTES.md
