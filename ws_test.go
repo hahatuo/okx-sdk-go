@@ -5,8 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestSubscriptionKeyStable(t *testing.T) {
@@ -125,8 +131,112 @@ func TestOrderBookChannelHelpers(t *testing.T) {
 	}
 }
 
+func TestWSConnectRejectsDuplicateConnection(t *testing.T) {
+	var accepted atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		accepted.Add(1)
+		ctx := conn.CloseRead(context.Background())
+		<-ctx.Done()
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer server.Close()
+
+	client := NewWSClient(WithWSURL(websocketTestURL(server)))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("close websocket: %v", err)
+		}
+	}()
+
+	if err := client.Connect(ctx); !errors.Is(err, errWSAlreadyConnected) {
+		t.Fatalf("Connect duplicate error = %v, want %v", err, errWSAlreadyConnected)
+	}
+	if got := accepted.Load(); got != 1 {
+		t.Fatalf("accepted connections = %d, want 1", got)
+	}
+}
+
+func TestWSMethodsBeforeConnectReturnNotConnected(t *testing.T) {
+	client := NewWSClient()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if _, err := client.Do(ctx, "order"); !errors.Is(err, errWSNotConnected) {
+		t.Fatalf("Do error = %v, want %v", err, errWSNotConnected)
+	}
+	if len(client.ops) != 0 {
+		t.Fatalf("pending operations were not cleaned up: %d", len(client.ops))
+	}
+
+	sub := Subscription{Channel: "tickers", Args: map[string]string{"instId": "BTC-USDT"}}
+	if _, err := client.Subscribe(ctx, sub); !errors.Is(err, errWSNotConnected) {
+		t.Fatalf("Subscribe error = %v, want %v", err, errWSNotConnected)
+	}
+	if _, ok := client.subs[sub.key()]; ok {
+		t.Fatal("subscription was not cleaned up after not connected error")
+	}
+}
+
+func TestWSLoginNilContextUsesBackgroundContext(t *testing.T) {
+	client := NewWSClient(WithWSCredentials("key", "secret", "pass"))
+	markWSConnectedForTest(client)
+
+	done := make(chan error, 1)
+	go func() {
+		item := <-client.writeCh
+		item.errCh <- nil
+		client.handleRaw([]byte(`{"event":"login","code":"0"}`))
+	}()
+	go func() {
+		done <- client.Login(context.TODO())
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for nil-context login")
+	}
+}
+
+func TestWSDispatchSubscriptionConcurrentCloseDoesNotPanic(t *testing.T) {
+	sub := Subscription{Channel: "books5", Args: map[string]string{"instId": "BTC-USDT"}}
+	raw := marshalOrderBookWSMessage(t, sub.Channel, 5)
+
+	for range 100 {
+		client := NewWSClient()
+		ch := make(chan WSMessage, 1)
+		client.subs[sub.key()] = wsSubscriptionState{sub: sub.clone(), ch: ch}
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			client.handleRaw(raw)
+		}()
+		client.removeSubscription(sub.key(), true)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for dispatch")
+		}
+	}
+}
+
 func TestWSTradeOperationMatchesResponseByIDAndOp(t *testing.T) {
 	client := NewWSClient()
+	markWSConnectedForTest(client)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -181,6 +291,7 @@ func TestWSTradeOperationMatchesResponseByIDAndOp(t *testing.T) {
 
 func TestWSBatchTradeOperationPreservesPartialSuccessRows(t *testing.T) {
 	client := NewWSClient()
+	markWSConnectedForTest(client)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -233,6 +344,7 @@ func TestWSBatchTradeOperationPreservesPartialSuccessRows(t *testing.T) {
 
 func TestWSTradeOperationErrorSupportsAs(t *testing.T) {
 	client := NewWSClient()
+	markWSConnectedForTest(client)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -349,4 +461,12 @@ func decodeOrderBookData(t *testing.T, data json.RawMessage) []orderBookData {
 		t.Fatalf("decode order book data: %v", err)
 	}
 	return books
+}
+
+func websocketTestURL(server *httptest.Server) string {
+	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
+func markWSConnectedForTest(client *WSClient) {
+	client.conn = new(websocket.Conn)
 }

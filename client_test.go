@@ -118,6 +118,50 @@ func TestRESTErrorPreservesEnvelopeRows(t *testing.T) {
 	}
 }
 
+func TestRESTBatchPartialSuccessReturnsRowsAndError(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(map[string]any{
+			"code": "2",
+			"msg":  "Bulk operation partially succeeded.",
+			"data": []map[string]string{
+				{"ordId": "1", "clOrdId": "client-1", "sCode": "0"},
+				{"ordId": "", "clOrdId": "client-2", "sCode": "51008", "sMsg": "Insufficient balance"},
+			},
+		})
+	})}
+
+	client := NewRestClient(WithBaseURL("https://local.test"), WithHTTPClient(httpClient), WithCredentials("key", "secret", "pass"))
+	acks, err := client.Trade.PlaceMultipleOrders(context.Background(), []PlaceOrderRequest{{
+		InstID:  "BTC-USDT",
+		TdMode:  "cash",
+		Side:    "buy",
+		OrdType: "limit",
+		Sz:      "1",
+		Px:      "100",
+	}})
+	if err == nil {
+		t.Fatal("expected partial error")
+	}
+	var partial *PartialError
+	if !errors.As(err, &partial) {
+		t.Fatalf("errors.As PartialError = false, err=%v", err)
+	}
+	var okxErr *OKXError
+	if !errors.As(err, &okxErr) || okxErr.Code != "2" {
+		t.Fatalf("unexpected OKXError: %#v err=%v", okxErr, err)
+	}
+	if len(acks) != 2 || acks[0].SCode != "0" || acks[1].SCode != "51008" || acks[1].ClOrdID != "client-2" {
+		t.Fatalf("unexpected acks: %+v", acks)
+	}
+	var rows []ErrorRow
+	if err := okxErr.DecodeData(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[1].SCode != "51008" {
+		t.Fatalf("unexpected decoded rows: %+v", rows)
+	}
+}
+
 func TestIndexComponentsDecodesObjectData(t *testing.T) {
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return jsonResponse(map[string]any{

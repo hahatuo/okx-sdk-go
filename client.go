@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -101,7 +100,11 @@ func (c *Client) do(ctx context.Context, spec requestSpec, out any) error {
 	if err != nil {
 		return fmt.Errorf("okx: execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			c.logger.Debug("okx rest response close failed", "error", closeErr)
+		}
+	}()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -121,13 +124,22 @@ func (c *Client) do(ctx context.Context, spec requestSpec, out any) error {
 	}
 	if envelope.Code != "0" {
 		parsed, _ := ParseErrorEnvelope(respBody)
-		return wrapOKXError(&OKXError{
+		okxErr := &OKXError{
 			Code:     envelope.Code,
 			Message:  envelope.Msg,
 			Data:     append(json.RawMessage(nil), envelope.Data...),
 			Raw:      respBody,
 			Envelope: parsed,
-		})
+		}
+		if envelope.Code == "2" {
+			if out != nil && len(envelope.Data) > 0 && string(envelope.Data) != "null" {
+				if err := json.Unmarshal(envelope.Data, out); err != nil {
+					return fmt.Errorf("okx: decode partial data: %w", err)
+				}
+			}
+			return &PartialError{Err: okxErr}
+		}
+		return wrapOKXError(okxErr)
 	}
 	if out == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil
@@ -182,10 +194,4 @@ func setBoolIfNotNil(q url.Values, key string, value *bool) {
 		return
 	}
 	q.Set(key, "false")
-}
-
-func setOpt(v url.Values, key string, value *string) {
-	if value != nil && strings.TrimSpace(*value) != "" {
-		setIfNotEmpty(v, key, *value)
-	}
 }
