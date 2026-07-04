@@ -197,7 +197,7 @@ func TestWSLoginNilContextUsesBackgroundContext(t *testing.T) {
 		client.handleRaw([]byte(`{"event":"login","code":"0"}`))
 	}()
 	go func() {
-		done <- client.Login(nil)
+		done <- client.Login(context.TODO())
 	}()
 
 	select {
