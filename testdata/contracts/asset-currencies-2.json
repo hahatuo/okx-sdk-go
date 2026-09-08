@@ -1,0 +1,38 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {
+      "burningFeeRate": "",
+      "canDep": true,
+      "canInternal": true,
+      "canWd": true,
+      "ccy": "BTC",
+      "chain": "BTC-Bitcoin",
+      "ctAddr": "",
+      "depEstOpenTime": "",
+      "depQuotaFixed": "",
+      "depQuoteDailyLayer2": "",
+      "fee": "0.00005",
+      "logoLink": "https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/btc20230419112752.png",
+      "mainNet": true,
+      "maxFee": "0.00005",
+      "maxFeeForCtAddr": "",
+      "maxWd": "500",
+      "minDep": "0.0005",
+      "minDepArrivalConfirm": "1",
+      "minFee": "0.00005",
+      "minFeeForCtAddr": "",
+      "minInternal": "0.0001",
+      "minWd": "0.0005",
+      "minWdUnlockConfirm": "2",
+      "name": "Bitcoin",
+      "needTag": false,
+      "usedDepQuotaFixed": "",
+      "usedWdQuota": "0",
+      "wdEstOpenTime": "",
+      "wdQuota": "10000000",
+      "wdTickSz": "8"
+    }
+  ]
+}

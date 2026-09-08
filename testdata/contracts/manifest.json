@@ -1,0 +1,328 @@
+[
+  {
+    "file": "account-balance-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#trading-account-rest-api-get-balance",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/account/balance",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "account-positions-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#trading-account-rest-api-get-positions",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/account/positions",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "account-set-leverage-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#trading-account-rest-api-set-leverage",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/account/set-leverage",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "account-max-avail-size-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#trading-account-rest-api-get-maximum-available-balance-equity",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/account/max-avail-size",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "account-set-fee-type-1.json",
+    "source": "https://www.okx.com/docs-v5/en/#trading-account-rest-api-set-fee-type",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/account/set-fee-type",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-order-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-place-order",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/order",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-batch-orders-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-place-multiple-orders",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/batch-orders",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-cancel-order-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-cancel-order",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/cancel-order",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-cancel-batch-orders-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-cancel-multiple-orders",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/cancel-batch-orders",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-amend-batch-orders-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-amend-multiple-orders",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/amend-batch-orders",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-order-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-order-details",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/order",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-orders-pending-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-order-list",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/orders-pending",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "trade-fills-history-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-transaction-details-last-3-months",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/fills-history",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "order-book-trading-trade-ws-order-channel-7.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-ws-order-channel",
+    "retrieved": "2026-09-08",
+    "endpoint": "",
+    "method": "",
+    "kind": "ws"
+  },
+  {
+    "file": "market-tickers-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-tickers",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/tickers",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-ticker-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-ticker",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/ticker",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-books-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-order-book",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/books",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-candles-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/candles",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-history-candles-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/history-candles",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-trades-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-trades",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/trades",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-history-trades-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-trades-history",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/history-trades",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "order-book-trading-market-data-ws-order-book-channel-4.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-order-book-channel",
+    "retrieved": "2026-09-08",
+    "endpoint": "",
+    "method": "",
+    "kind": "ws"
+  },
+  {
+    "file": "order-book-trading-market-data-ws-order-book-channel-5.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-order-book-channel",
+    "retrieved": "2026-09-08",
+    "endpoint": "",
+    "method": "",
+    "kind": "ws"
+  },
+  {
+    "file": "order-book-trading-market-data-ws-order-book-channel-6.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-order-book-channel",
+    "retrieved": "2026-09-08",
+    "endpoint": "",
+    "method": "",
+    "kind": "ws"
+  },
+  {
+    "file": "order-book-trading-market-data-ws-order-book-channel-7.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-order-book-channel",
+    "retrieved": "2026-09-08",
+    "endpoint": "",
+    "method": "",
+    "kind": "ws"
+  },
+  {
+    "file": "public-instruments-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-instruments",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/public/instruments",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "public-funding-rate-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-funding-rate",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/public/funding-rate",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "public-time-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-system-time",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/public/time",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "public-underlying-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-underlying",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/public/underlying",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-index-candles-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-index-candlesticks",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/index-candles",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-history-index-candles-1.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-index-candlesticks-history",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/history-index-candles",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-mark-price-candles-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-mark-price-candlesticks",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/mark-price-candles",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-history-mark-price-candles-1.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-mark-price-candlesticks-history",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/history-mark-price-candles",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "market-index-components-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#public-data-rest-api-get-index-components",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/index-components",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "asset-currencies-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#funding-account-rest-api-get-currencies",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/asset/currencies",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "asset-balances-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#funding-account-rest-api-get-balance",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/asset/balances",
+    "method": "GET",
+    "kind": "rest"
+  },
+  {
+    "file": "asset-transfer-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#funding-account-rest-api-funds-transfer",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/asset/transfer",
+    "method": "POST",
+    "kind": "rest"
+  },
+  {
+    "file": "trading-account-websocket-account-channel-7.json",
+    "source": "https://www.okx.com/docs-v5/en/#trading-account-websocket-account-channel",
+    "retrieved": "2026-09-08",
+    "endpoint": "",
+    "method": "",
+    "kind": "ws",
+    "normalization": [
+      "Removed the inline // Deprecated comment; JSON values are unchanged."
+    ]
+  },
+  {
+    "file": "trade-amend-order-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-amend-order",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/trade/amend-order",
+    "method": "POST",
+    "kind": "rest",
+    "normalization": [
+      "Inserted the missing comma between sMsg and subCode."
+    ]
+  },
+  {
+    "file": "market-platform-24-volume-2.json",
+    "source": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-24h-total-volume",
+    "retrieved": "2026-09-08",
+    "endpoint": "/api/v5/market/platform-24-volume",
+    "method": "GET",
+    "kind": "rest"
+  }
+]
